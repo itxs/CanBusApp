@@ -9,7 +9,8 @@ import os
 GS_USB_NONE_ECHO_ID = 0xFFFFFFFF
 
 '''
-If app crashes on Start button click, add libusb-1.0.dll file
+If app crashes on Start button click, add libusb-1.0.dll file and
+run in terminal: "pyinstaller can_app.spec" to update .exe file in /dist folder
 '''
 
 class CANWorker(QObject):

@@ -27,7 +27,7 @@ class CANWorker(QObject):
 
         self.dev = devs[0]
 
-        if self.dev:
+        if self.dev is not None:
             if not self.dev.set_bitrate(baudrate):
                 print("Can not set bitrate for gs_usb")
                 return
@@ -38,7 +38,7 @@ class CANWorker(QObject):
     def run(self):
         try:
             while self.running:
-                if self.dev:
+                if self.dev is not None:
                     frame = GsUsbFrame()
                     if self.dev.read(frame, 1):
                         if frame.echo_id == GS_USB_NONE_ECHO_ID:
@@ -46,7 +46,7 @@ class CANWorker(QObject):
                             self.newFrame.emit(frame.timestamp, frame.can_id, data_hex)
         except:
             self.disconnected.emit()
-        if self.dev:
+        if self.dev is not None:
             self.dev.stop()
 
     def stop(self):
@@ -85,7 +85,7 @@ class CanMsgLog(QtWidgets.QWidget):
         self.prevTime = 0.0
 
     def addData(self, timestamp, data):
-        if self.msgList:
+        if self.msgList is not None:
             if (self.prevTime == 0):
                 self.msgList.addItem('{:.3f}s  {}'.format(timestamp, data))
             else:
@@ -101,7 +101,7 @@ class CanMsgLog(QtWidgets.QWidget):
         self.deleteLater()
 
     def btClearAction(self):
-        if self.msgList:
+        if self.msgList is not None:
             self.msgList.clear()
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -181,7 +181,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def errDevNotFound(self, message):
         msg = QtWidgets.QMessageBox()
         msg.setIcon(QtWidgets.QMessageBox.Critical)
-        if self.icon:
+        if self.icon is not None:
             msg.setWindowIcon(self.icon)
         msg.setText(message)
         msg.setWindowTitle("USB2CAN error")
@@ -211,7 +211,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def stopRx(self):
         self.btStartRx.setText("Start")
-        if self.worker:
+        if self.worker is not None:
             self.worker.stop()
             self.readThread.exit()
 

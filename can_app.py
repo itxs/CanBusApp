@@ -2,10 +2,15 @@ from gs_usb.gs_usb import GsUsb
 from gs_usb.gs_usb_frame import GsUsbFrame
 from gs_usb.constants import *
 from PyQt5 import QtWidgets
-from PyQt5.QtGui import QRegExpValidator, QIntValidator
+from PyQt5.QtGui import QRegExpValidator, QIntValidator, QIcon
 from PyQt5.QtCore import QRegExp, QObject, QThread, pyqtSignal, pyqtSlot
 import sys
+import os
 GS_USB_NONE_ECHO_ID = 0xFFFFFFFF
+
+'''
+If app crashes on Start button click, add libusb-1.0.dll file
+'''
 
 class CANWorker(QObject):
     newFrame = pyqtSignal(float,int,str)
@@ -20,19 +25,20 @@ class CANWorker(QObject):
 
         self.dev = devs[0]
 
-        if not self.dev.set_bitrate(baudrate):
-            print("Can not set bitrate for gs_usb")
-            return
-
-        self.dev.start(GS_CAN_MODE_NORMAL|GS_CAN_MODE_HW_TIMESTAMP)
-        self.running = True
+        if self.dev is not None:
+            if not self.dev.set_bitrate(baudrate):
+                print("Can not set bitrate for gs_usb")
+                return
+            self.dev.stop()
+            self.dev.start(GS_CAN_MODE_NORMAL|GS_CAN_MODE_HW_TIMESTAMP)
+            self.running = True
 
     def run(self):
         while self.running:
             frame = GsUsbFrame()
             if self.dev.read(frame, 1):
                 if frame.echo_id == GS_USB_NONE_ECHO_ID:
-                    data_hex = ' '.join(f'{byte:02x}' for byte in frame.data[:frame.can_dlc])
+                    data_hex = ' '.join(f'{byte:02X}' for byte in frame.data[:frame.can_dlc])
                     self.newFrame.emit(frame.timestamp, frame.can_id, data_hex)
         self.dev.stop()
 
@@ -49,6 +55,9 @@ class CanMsgLog(QtWidgets.QWidget):
         self.msgList = QtWidgets.QListWidget(self)
         self.msgList.setSelectionMode(QtWidgets.QListWidget.SingleSelection)
         self.msgList.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
+        self.btClear = QtWidgets.QPushButton(self, text="Clear")
+        self.btClear.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Minimum)
+        self.btClear.clicked.connect(self.btClearAction)
         if (canId != 0):
             self.btRemove = QtWidgets.QPushButton(self, text="Remove")
             self.btRemove.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Minimum)
@@ -58,8 +67,11 @@ class CanMsgLog(QtWidgets.QWidget):
             self.logTitle.setText('All frames')
         self.verticalLayout.addWidget(self.logTitle)
         self.verticalLayout.addWidget(self.msgList)
+        self.ctrlLayout = QtWidgets.QHBoxLayout()
+        self.verticalLayout.addLayout(self.ctrlLayout)
+        self.ctrlLayout.addWidget(self.btClear)
         if (canId != 0):
-            self.verticalLayout.addWidget(self.btRemove)
+            self.ctrlLayout.addWidget(self.btRemove)
         self.prevTime = 0.0
 
     def addData(self, timestamp, data):
@@ -67,15 +79,20 @@ class CanMsgLog(QtWidgets.QWidget):
             if (self.prevTime == 0):
                 self.msgList.addItem('{:.3f}s  {}'.format(timestamp, data))
             else:
-                self.msgList.addItem('{:.3f}s  {}  +{:.2f}ms'.format(timestamp, data, (timestamp - self.prevTime) * 1000))
+                dt = (timestamp - self.prevTime) * 1000 # In milliseconds
+                self.msgList.addItem('{:.3f}s  {}  +{:.2f}ms'.format(timestamp, data, dt))
             self.prevTime = timestamp
-            self.msgList.scrollToBottom()
             if (self.msgList.count() > 200):
                 self.msgList.takeItem(0)
+            self.msgList.scrollToBottom()
 
     def btRemoveAction(self):
         self.msgList = None
         self.deleteLater()
+
+    def btClearAction(self):
+        if self.msgList is not None:
+            self.msgList.clear()
 
 class MainWindow(QtWidgets.QMainWindow):
     worker = None
@@ -84,6 +101,8 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("CAN Message Logger")
         self.setGeometry(100, 100, 800, 600)
+        icon = os.path.join(os.path.dirname(__file__), 'CAN_Logo.png')
+        self.setWindowIcon(QIcon(icon))
         self.widget = QtWidgets.QWidget()
         self.windowLayout = QtWidgets.QVBoxLayout(self.widget)
         self.setCentralWidget(self.widget)

@@ -14,18 +14,19 @@ If app crashes on Start button click, add libusb-1.0.dll file
 
 class CANWorker(QObject):
     newFrame = pyqtSignal(float,int,str)
+    disconnected = pyqtSignal()
     running = False
+    dev = None
 
     def __init__(self, baudrate):
         super().__init__()
         devs = GsUsb.scan()
         if len(devs) == 0:
-            print("Can not find gs_usb device")
-            return
+            raise Exception("USB2CAN device not found!")
 
         self.dev = devs[0]
 
-        if self.dev is not None:
+        if self.dev:
             if not self.dev.set_bitrate(baudrate):
                 print("Can not set bitrate for gs_usb")
                 return
@@ -34,16 +35,24 @@ class CANWorker(QObject):
             self.running = True
 
     def run(self):
-        while self.running:
-            frame = GsUsbFrame()
-            if self.dev.read(frame, 1):
-                if frame.echo_id == GS_USB_NONE_ECHO_ID:
-                    data_hex = ' '.join(f'{byte:02X}' for byte in frame.data[:frame.can_dlc])
-                    self.newFrame.emit(frame.timestamp, frame.can_id, data_hex)
-        self.dev.stop()
+        try:
+            while self.running:
+                if self.dev:
+                    frame = GsUsbFrame()
+                    if self.dev.read(frame, 1):
+                        if frame.echo_id == GS_USB_NONE_ECHO_ID:
+                            data_hex = ' '.join(f'{byte:02X}' for byte in frame.data[:frame.can_dlc])
+                            self.newFrame.emit(frame.timestamp, frame.can_id, data_hex)
+        except:
+            self.disconnected.emit()
+        if self.dev:
+            self.dev.stop()
 
     def stop(self):
         self.running = False
+
+    def hasDev(self):
+        return self.dev is not None
 
 class CanMsgLog(QtWidgets.QWidget):
     prevTime = 0.0
@@ -75,7 +84,7 @@ class CanMsgLog(QtWidgets.QWidget):
         self.prevTime = 0.0
 
     def addData(self, timestamp, data):
-        if self.msgList is not None:
+        if self.msgList:
             if (self.prevTime == 0):
                 self.msgList.addItem('{:.3f}s  {}'.format(timestamp, data))
             else:
@@ -91,18 +100,19 @@ class CanMsgLog(QtWidgets.QWidget):
         self.deleteLater()
 
     def btClearAction(self):
-        if self.msgList is not None:
+        if self.msgList:
             self.msgList.clear()
 
 class MainWindow(QtWidgets.QMainWindow):
     worker = None
+    icon = None
 
     def __init__(self):
         super().__init__()
         self.setWindowTitle("CAN Message Logger")
         self.setGeometry(100, 100, 800, 600)
-        icon = os.path.join(os.path.dirname(__file__), 'CAN_Logo.png')
-        self.setWindowIcon(QIcon(icon))
+        self.icon = QIcon(os.path.join(os.path.dirname(__file__), 'CAN_Logo.png'))
+        self.setWindowIcon(self.icon)
         self.widget = QtWidgets.QWidget()
         self.windowLayout = QtWidgets.QVBoxLayout(self.widget)
         self.setCentralWidget(self.widget)
@@ -167,21 +177,40 @@ class MainWindow(QtWidgets.QMainWindow):
         except:
             return
 
+    def errDevNotFound(self, message):
+        msg = QtWidgets.QMessageBox()
+        msg.setIcon(QtWidgets.QMessageBox.Critical)
+        if self.icon:
+            msg.setWindowIcon(self.icon)
+        msg.setText(message)
+        msg.setWindowTitle("USB2CAN error")
+        msg.exec_()
+
     def startRx(self):
         if (self.btStartRx.text() == "Start"):
-            self.btStartRx.setText("Stop")
-            self.readThread = QThread()
-            self.worker = CANWorker(int(self.leBaudrate.text()))
-            self.worker.moveToThread(self.readThread)
-            self.worker.newFrame.connect(self.updateListWidget)
-            self.readThread.started.connect(self.worker.run)
-            self.readThread.start()
+            try:
+                self.worker = CANWorker(int(self.leBaudrate.text()))
+                if self.worker.hasDev():
+                    self.readThread = QThread()
+                    self.worker.moveToThread(self.readThread)
+                    self.worker.newFrame.connect(self.updateListWidget)
+                    self.worker.disconnected.connect(self.disconnected)
+                    self.readThread.started.connect(self.worker.run)
+                    self.readThread.start()
+                    self.btStartRx.setText("Stop")
+            except Exception as e:
+                self.stopRx()
+                self.errDevNotFound(str(e))
         else:
-            self.btStartRx.setText("Start")
             self.stopRx()
 
+    def disconnected(self):
+        self.stopRx()
+        self.errDevNotFound("USB2CAN device has been disconnected!")
+
     def stopRx(self):
-        if self.worker is not None:
+        self.btStartRx.setText("Start")
+        if self.worker:
             self.worker.stop()
             self.readThread.exit()
 

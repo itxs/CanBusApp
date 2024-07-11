@@ -85,8 +85,16 @@ class CanMsgLog(QtWidgets.QWidget):
             if (self.prevTime == 0):
                 self.msgList.addItem('{:.3f}s  {}'.format(timestamp, data))
             else:
-                dt = (timestamp - self.prevTime) * 1000 # In milliseconds
-                self.msgList.addItem('{:.3f}s  {}  +{:.2f}ms'.format(timestamp, data, dt))
+                dt = timestamp - self.prevTime
+                if dt < 1:
+                    dt = dt * 1000 # In milliseconds
+                    if dt < 1:
+                        dt = dt * 1000 # In microseconds
+                        self.msgList.addItem('{:.3f}s  {}  +{:.2f}us'.format(timestamp, data, dt))
+                    else:
+                        self.msgList.addItem('{:.3f}s  {}  +{:.2f}ms'.format(timestamp, data, dt))
+                else:
+                    self.msgList.addItem('{:.3f}s  {}  +{:.2f}s'.format(timestamp, data, dt))
             self.prevTime = timestamp
             if (self.msgList.count() > 200):
                 self.msgList.takeItem(0)
@@ -160,7 +168,7 @@ class MainWindow(QtWidgets.QMainWindow):
     @pyqtSlot(float, int, str)
     def updateListWidget(self, timestamp, canId, data):
         if canId != 0 and canId in self.canLogs.keys():
-            self.canLogs[canId].addData(timestamp, data)
+            self.canLogs[canId].addData(timestamp, f'[{data}]')
         else:
             self.canLogs[0].addData(timestamp, 'ID 0x{:X}: [{}]'.format(canId, data))
             if self.cbAutoAdd.isChecked():

@@ -4,14 +4,10 @@ from gs_usb.constants import *
 from PyQt5 import QtWidgets
 from PyQt5.QtGui import QRegExpValidator, QIntValidator, QIcon
 from PyQt5.QtCore import QRegExp, QObject, QThread, pyqtSignal, pyqtSlot
-import sys
-import os
-GS_USB_NONE_ECHO_ID = 0xFFFFFFFF
+from pathlib import Path
+import sys, os
 
-'''
-If app crashes on Start button click, add libusb-1.0.dll file and
-run in terminal: "pyinstaller can_app.spec" to update .exe file in /dist folder
-'''
+GS_USB_NONE_ECHO_ID = 0xFFFFFFFF
 
 class CANWorker(QObject):
     newFrame = pyqtSignal(float,int,str)
@@ -112,7 +108,13 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("CAN Message Logger")
         self.setGeometry(100, 100, 800, 600)
-        self.icon = QIcon(os.path.join(os.path.dirname(__file__), 'CAN_Logo.png'))
+
+        if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+            path = Path(sys._MEIPASS)
+        else:
+            path = Path(__file__).parent
+        self.icon = QIcon(str(Path.cwd() / path / "CAN_Logo.png"))
+
         self.setWindowIcon(self.icon)
         self.widget = QtWidgets.QWidget()
         self.windowLayout = QtWidgets.QVBoxLayout(self.widget)

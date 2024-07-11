@@ -2,10 +2,10 @@ from gs_usb.gs_usb import GsUsb
 from gs_usb.gs_usb_frame import GsUsbFrame
 from gs_usb.constants import *
 from PyQt5 import QtWidgets
-from PyQt5.QtGui import QRegExpValidator, QIntValidator, QIcon
+from PyQt5.QtGui import QRegExpValidator, QIntValidator, QIcon, QFont
 from PyQt5.QtCore import QRegExp, QObject, QThread, pyqtSignal, pyqtSlot
 from pathlib import Path
-import sys, os
+import sys, os, time
 
 GS_USB_NONE_ECHO_ID = 0xFFFFFFFF
 
@@ -14,6 +14,7 @@ class CANWorker(QObject):
     disconnected = pyqtSignal()
     running = False
     dev = None
+    startTime = 0.0
 
     def __init__(self, baudrate):
         super().__init__()
@@ -24,22 +25,23 @@ class CANWorker(QObject):
         self.dev = devs[0]
 
         if self.dev is not None:
-            if not self.dev.set_bitrate(baudrate):
-                print("Can not set bitrate for gs_usb")
-                return
-            self.dev.stop()
-            self.dev.start(GS_CAN_MODE_NORMAL|GS_CAN_MODE_HW_TIMESTAMP)
-            self.running = True
+            if self.dev.set_bitrate(baudrate):
+                self.dev.stop()
+                self.dev.start(GS_CAN_MODE_NORMAL|GS_CAN_MODE_HW_TIMESTAMP)
+                self.running = True
 
     def run(self):
+        self.startTime = 0.0
         try:
             while self.running:
                 if self.dev is not None:
                     frame = GsUsbFrame()
                     if self.dev.read(frame, 1):
                         if frame.echo_id == GS_USB_NONE_ECHO_ID:
-                            data_hex = ' '.join(f'{byte:02X}' for byte in frame.data[:frame.can_dlc])
-                            self.newFrame.emit(frame.timestamp, frame.can_id, data_hex)
+                            data = ' '.join(f'{byte:02X}' for byte in frame.data[:frame.can_dlc])
+                            if (self.startTime == 0.0):
+                                self.startTime = frame.timestamp
+                            self.newFrame.emit(frame.timestamp - self.startTime, frame.can_id, data)
         except:
             self.disconnected.emit()
         if self.dev is not None:
@@ -61,13 +63,16 @@ class CanMsgLog(QtWidgets.QWidget):
         self.msgList = QtWidgets.QListWidget(self)
         self.msgList.setSelectionMode(QtWidgets.QListWidget.SingleSelection)
         self.msgList.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Expanding)
+        self.msgList.setFont(QFont("Consolas", 9))
         self.btClear = QtWidgets.QPushButton(self, text="Clear")
         self.btClear.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Minimum)
         self.btClear.clicked.connect(self.btClearAction)
-        if (canId != 0):
+        self.btClear.setMinimumWidth(30)
+        if (canId >= 0):
             self.btRemove = QtWidgets.QPushButton(self, text="Remove")
             self.btRemove.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Minimum)
             self.btRemove.clicked.connect(self.btRemoveAction)
+            self.btRemove.setMinimumWidth(30)
             self.logTitle.setText(f'CAN ID: {hex(canId).upper().replace('0X','0x')}')
         else:
             self.logTitle.setText('All frames')
@@ -76,25 +81,28 @@ class CanMsgLog(QtWidgets.QWidget):
         self.ctrlLayout = QtWidgets.QHBoxLayout()
         self.verticalLayout.addLayout(self.ctrlLayout)
         self.ctrlLayout.addWidget(self.btClear)
-        if (canId != 0):
+        if (canId >= 0):
             self.ctrlLayout.addWidget(self.btRemove)
         self.prevTime = 0.0
 
     def addData(self, timestamp, data):
         if self.msgList is not None:
-            if (self.prevTime == 0):
-                self.msgList.addItem('{:.3f}s  {}'.format(timestamp, data))
-            else:
-                dt = timestamp - self.prevTime
-                if dt < 1:
-                    dt = dt * 1000 # In milliseconds
-                    if dt < 1:
-                        dt = dt * 1000 # In microseconds
-                        self.msgList.addItem('{:.3f}s  {}  +{:.2f}us'.format(timestamp, data, dt))
-                    else:
-                        self.msgList.addItem('{:.3f}s  {}  +{:.2f}ms'.format(timestamp, data, dt))
+            #if (self.prevTime == 0):
+            #    self.msgList.addItem('{} {} {:.2f}s'.format(' '.rjust(8),data, timestamp))
+            #else:
+            dt = timestamp - self.prevTime
+            if timestamp == 0:
+                dt = 8
+            if dt < 0.9:
+                dt = dt * 1000 # In milliseconds
+                if dt < 0.9:
+                    dt = dt * 1000 # In microseconds
+                    dtStr = "+{:.0f}us".format(dt)
                 else:
-                    self.msgList.addItem('{:.3f}s  {}  +{:.2f}s'.format(timestamp, data, dt))
+                    dtStr = "+{:.1f}ms".format(dt)
+            else:
+                dtStr = "+{:.2f}s".format(dt)
+            self.msgList.addItem('{} {} {:.2f}s'.format(dtStr.rjust(8), data, timestamp))
             self.prevTime = timestamp
             if (self.msgList.count() > 200):
                 self.msgList.takeItem(0)
@@ -105,8 +113,12 @@ class CanMsgLog(QtWidgets.QWidget):
         self.deleteLater()
 
     def btClearAction(self):
+        self.prevTime = 0
         if self.msgList is not None:
             self.msgList.clear()
+
+    def setInitialTime(self, time):
+        self.prevTime = time
 
 class MainWindow(QtWidgets.QMainWindow):
     worker = None
@@ -118,7 +130,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setGeometry(100, 100, 800, 600)
 
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-            path = Path(sys._MEIPASS)
+            path = Path(sys._MEIPASS) # type: ignore
         else:
             path = Path(__file__).parent
         self.icon = QIcon(str(Path.cwd() / path / "CAN_Logo.png"))
@@ -160,26 +172,27 @@ class MainWindow(QtWidgets.QMainWindow):
         self.windowLayout.addLayout(self.controlsLayout)
         self.canLogs = dict()
         self.canIds = dict()
-        self.addLog('')
+        self.addLog()
 
     def closeEvent(self, event):
         self.stopRx()
 
     @pyqtSlot(float, int, str)
     def updateListWidget(self, timestamp, canId, data):
-        if canId != 0 and canId in self.canLogs.keys():
+        if canId in self.canLogs.keys():
             self.canLogs[canId].addData(timestamp, f'[{data}]')
         else:
-            self.canLogs[0].addData(timestamp, 'ID 0x{:X}: [{}]'.format(canId, data))
+            self.canLogs[-1].addData(timestamp, 'ID=0x{:X}: [{}]'.format(canId, data))
             if self.cbAutoAdd.isChecked():
                 self.addLog(hex(canId))
 
-    def addLog(self, id):
+    def addLog(self, id = ''):
         try:
             canIdTxt = id
             if canIdTxt == '':
-                canIdTxt = '0'
-            canId = int(canIdTxt, 16)
+                canId = -1
+            else:
+                canId = int(canIdTxt, 16)
             if canId not in self.canLogs.keys():
                 canLog = CanMsgLog(self, canId)
                 self.logsLayout.addWidget(canLog)
@@ -209,6 +222,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.readThread.started.connect(self.worker.run)
                     self.readThread.start()
                     self.btStartRx.setText("Stop")
+                    for canLog in self.canLogs.values():
+                        canLog.setInitialTime(0)
             except Exception as e:
                 self.stopRx()
                 self.errDevNotFound(str(e))

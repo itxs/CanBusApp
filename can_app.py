@@ -157,6 +157,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.leCanId.setMaximumWidth(60)
         self.leCanId.setValidator(QRegExpValidator(QRegExp("[0-9A-Fa-f]*")))
         self.leCanId.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Minimum)
+        self.btRemoveEmpty = QtWidgets.QPushButton(self, text="Remove empty logs")
+        self.btRemoveEmpty.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Minimum)
+        self.btRemoveEmpty.clicked.connect(self.removeEmpty)
+        self.btRemoveEmpty.setMinimumWidth(110)
         self.controlsLayout = QtWidgets.QHBoxLayout()
         self.controlsLayout.addWidget(self.btStartRx)
         self.controlsLayout.addWidget(self.cbAutoAdd)
@@ -167,6 +171,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.controlsLayout.addSpacerItem(QtWidgets.QSpacerItem(20, 1, QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed))
         self.controlsLayout.addWidget(self.lBaudrate)
         self.controlsLayout.addWidget(self.leBaudrate)
+        self.controlsLayout.addWidget(self.btRemoveEmpty)
         self.controlsLayout.addSpacerItem(QtWidgets.QSpacerItem(1, 1, QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Minimum))
         self.logsLayout = QtWidgets.QHBoxLayout()
         self.logsLayout.addSpacerItem(QtWidgets.QSpacerItem(1, 1, QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Expanding))
@@ -200,13 +205,20 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.canLogs[canId] = canLog
                 canLog.destroyed.connect(lambda: self.canLogs.pop(canId))
                 if canId == -1:
-                    canLog.btClearAll.clicked.connect(self.btClearAll)
+                    canLog.btClearAll.clicked.connect(self.clearAll)
         except:
             return
 
-    def btClearAll(self):
+    def clearAll(self):
         for canLog in self.canLogs.values():
             canLog.btClearAction()
+
+    def removeEmpty(self):
+        for canLogId in self.canLogs.keys():
+            if canLogId != -1:
+                canLog = self.canLogs[canLogId]
+                if canLog.msgList.count() == 0:
+                    canLog.btRemoveAction()
 
     def errDevNotFound(self, message):
         msg = QtWidgets.QMessageBox()

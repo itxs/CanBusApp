@@ -5,7 +5,7 @@ from PyQt5 import QtWidgets
 from PyQt5.QtGui import QRegExpValidator, QIntValidator, QIcon, QFont
 from PyQt5.QtCore import QRegExp, QObject, QThread, pyqtSignal, pyqtSlot
 from pathlib import Path
-import sys, os, time
+import sys
 
 GS_USB_NONE_ECHO_ID = 0xFFFFFFFF
 
@@ -75,6 +75,9 @@ class CanMsgLog(QtWidgets.QWidget):
             self.btRemove.setMinimumWidth(30)
             self.logTitle.setText(f'CAN ID: {hex(canId).upper().replace('0X','0x')}')
         else:
+            self.btClearAll = QtWidgets.QPushButton(self, text="Clear All")
+            self.btClearAll.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Minimum)
+            self.btClearAll.setMinimumWidth(30)
             self.logTitle.setText('All frames')
         self.verticalLayout.addWidget(self.logTitle)
         self.verticalLayout.addWidget(self.msgList)
@@ -83,13 +86,12 @@ class CanMsgLog(QtWidgets.QWidget):
         self.ctrlLayout.addWidget(self.btClear)
         if (canId >= 0):
             self.ctrlLayout.addWidget(self.btRemove)
+        else:
+            self.ctrlLayout.addWidget(self.btClearAll)
         self.prevTime = 0.0
 
     def addData(self, timestamp, data):
         if self.msgList is not None:
-            #if (self.prevTime == 0):
-            #    self.msgList.addItem('{} {} {:.2f}s'.format(' '.rjust(8),data, timestamp))
-            #else:
             dt = timestamp - self.prevTime
             if timestamp == 0:
                 dt = 8
@@ -188,18 +190,23 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def addLog(self, id = ''):
         try:
-            canIdTxt = id
-            if canIdTxt == '':
+            if id == '':
                 canId = -1
             else:
-                canId = int(canIdTxt, 16)
+                canId = int(id, 16)
             if canId not in self.canLogs.keys():
                 canLog = CanMsgLog(self, canId)
                 self.logsLayout.addWidget(canLog)
                 self.canLogs[canId] = canLog
                 canLog.destroyed.connect(lambda: self.canLogs.pop(canId))
+                if canId == -1:
+                    canLog.btClearAll.clicked.connect(self.btClearAll)
         except:
             return
+
+    def btClearAll(self):
+        for canLog in self.canLogs.values():
+            canLog.btClearAction()
 
     def errDevNotFound(self, message):
         msg = QtWidgets.QMessageBox()

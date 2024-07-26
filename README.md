@@ -8,3 +8,5 @@ A Python application for logging CAN bus data, developed using PyQt. This applic
 - **Timestamping**: Adds timestamps to each frame from the start of reception.
 - **Time Difference Calculation**: Displays the time difference between consecutive frames.
 - **Data Export**: Exports captured data to an XLSX file for further analysis.
+
+![image](https://github.com/user-attachments/assets/a361c124-613e-45fe-a00b-3d6cd8107577)

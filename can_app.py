@@ -3,8 +3,9 @@ from gs_usb.gs_usb_frame import GsUsbFrame
 from gs_usb.constants import *
 from PyQt5 import QtWidgets
 from PyQt5.QtGui import QRegExpValidator, QIntValidator, QIcon, QFont
-from PyQt5.QtCore import QRegExp, QObject, QThread, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QRegExp, QObject, QThread, pyqtSignal, pyqtSlot, Qt
 from pathlib import Path
+from openpyxl import Workbook
 import sys
 
 GS_USB_NONE_ECHO_ID = 0xFFFFFFFF
@@ -67,17 +68,17 @@ class CanMsgLog(QtWidgets.QWidget):
         self.btClear = QtWidgets.QPushButton(self, text="Clear")
         self.btClear.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Minimum)
         self.btClear.clicked.connect(self.btClearAction)
-        self.btClear.setMinimumWidth(30)
+        self.btClear.setMinimumWidth(60)
         if (canId >= 0):
             self.btRemove = QtWidgets.QPushButton(self, text="Remove")
             self.btRemove.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Minimum)
             self.btRemove.clicked.connect(self.btRemoveAction)
-            self.btRemove.setMinimumWidth(30)
+            self.btRemove.setMinimumWidth(60)
             self.logTitle.setText(f'CAN ID: {hex(canId).upper().replace('0X','0x')}')
         else:
             self.btClearAll = QtWidgets.QPushButton(self, text="Clear All")
             self.btClearAll.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Minimum)
-            self.btClearAll.setMinimumWidth(30)
+            self.btClearAll.setMinimumWidth(60)
             self.logTitle.setText('All frames')
         self.verticalLayout.addWidget(self.logTitle)
         self.verticalLayout.addWidget(self.msgList)
@@ -106,7 +107,7 @@ class CanMsgLog(QtWidgets.QWidget):
                 dtStr = "+{:.2f}s".format(dt)
             self.msgList.addItem('{} {} {:.2f}s'.format(dtStr.rjust(8), data, timestamp))
             self.prevTime = timestamp
-            if (self.msgList.count() > 200):
+            if (self.msgList.count() > 300):
                 self.msgList.takeItem(0)
             self.msgList.scrollToBottom()
 
@@ -129,14 +130,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("CAN Message Logger")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 810, 600)
 
         if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
             path = Path(sys._MEIPASS) # type: ignore
         else:
             path = Path(__file__).parent
         self.icon = QIcon(str(Path.cwd() / path / "CAN_Logo.png"))
-
+        self.setMinimumSize(810, 200)
         self.setWindowIcon(self.icon)
         self.widget = QtWidgets.QWidget()
         self.windowLayout = QtWidgets.QVBoxLayout(self.widget)
@@ -160,7 +161,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.btRemoveEmpty = QtWidgets.QPushButton(self, text="Remove empty logs")
         self.btRemoveEmpty.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Minimum)
         self.btRemoveEmpty.clicked.connect(self.removeEmpty)
-        self.btRemoveEmpty.setMinimumWidth(110)
+        self.btRemoveEmpty.setMinimumWidth(125)
+        self.btExportXlsx = QtWidgets.QPushButton(self, text="Export")
+        self.btExportXlsx.setSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Minimum)
+        self.btExportXlsx.clicked.connect(self.exportToXlsx)
+        self.btExportXlsx.setMinimumWidth(60)
         self.controlsLayout = QtWidgets.QHBoxLayout()
         self.controlsLayout.addWidget(self.btStartRx)
         self.controlsLayout.addWidget(self.cbAutoAdd)
@@ -172,10 +177,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.controlsLayout.addWidget(self.lBaudrate)
         self.controlsLayout.addWidget(self.leBaudrate)
         self.controlsLayout.addWidget(self.btRemoveEmpty)
+        self.controlsLayout.addWidget(self.btExportXlsx)
         self.controlsLayout.addSpacerItem(QtWidgets.QSpacerItem(1, 1, QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Minimum))
+
         self.logsLayout = QtWidgets.QHBoxLayout()
         self.logsLayout.addSpacerItem(QtWidgets.QSpacerItem(1, 1, QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Expanding))
-        self.windowLayout.addLayout(self.logsLayout)
+
+        self.logsScrollWidget = QtWidgets.QWidget()
+        self.logsScrollWidget.setLayout(self.logsLayout)
+        self.logsScrollArea = QtWidgets.QScrollArea()
+        self.logsScrollArea.setWidget(self.logsScrollWidget)
+        self.logsScrollArea.setWidgetResizable(True)
+        self.logsScrollArea.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.logsScrollArea.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.logsScrollArea.setFrameShape(QtWidgets.QFrame.NoFrame)
+
+        self.windowLayout.addWidget(self.logsScrollArea)
         self.windowLayout.addLayout(self.controlsLayout)
         self.canLogs = dict()
         self.canIds = dict()
@@ -186,12 +203,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
     @pyqtSlot(float, int, str)
     def updateListWidget(self, timestamp, canId, data):
-        if canId in self.canLogs.keys():
-            self.canLogs[canId].addData(timestamp, f'[{data}]')
-        else:
-            self.canLogs[-1].addData(timestamp, 'ID=0x{:X}: [{}]'.format(canId, data))
+        if canId not in self.canLogs.keys():
             if self.cbAutoAdd.isChecked():
                 self.addLog(hex(canId))
+            else:
+                self.canLogs[-1].addData(timestamp, 'ID=0x{:X}: [{}]'.format(canId, data))
+        else:
+            self.canLogs[canId].addData(timestamp, f'[{data}]')
 
     def addLog(self, id = ''):
         try:
@@ -259,6 +277,52 @@ class MainWindow(QtWidgets.QMainWindow):
             self.worker.stop()
             self.readThread.exit()
 
+    def exportToXlsx(self):
+        options = QtWidgets.QFileDialog.Options()
+        fileName, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save as", "", "Excel Files (*.xlsx)", options=options)
+        if fileName:
+            if not fileName.endswith('.xlsx'):
+                fileName += '.xlsx'
+
+            # Create a workbook
+            workbook = Workbook()
+
+            # Create separate sheets for each QListWidget
+            logs = []
+            for i in self.canLogs.values():
+                logs.append(i)
+
+            if len(logs) > 1:
+                idLogs = logs[1:]
+                idLogs.sort(key=lambda x: int(x.logTitle.text().split(':')[1], 0))
+                for log in idLogs:
+                    sheet = workbook.create_sheet(title=f'CAN ID {log.logTitle.text().split(':')[1]}')
+                    sheet.cell(row=1, column=1, value="Time diff")
+                    sheet.cell(row=1, column=2, value="Data")
+                    sheet.cell(row=1, column=3, value="Timestamp")
+                    for row in range(log.msgList.count()):
+                        values = log.msgList.item(row).text().split()
+                        sheet.cell(row=row + 2, column=1, value=values[0])
+                        sheet.cell(row=row + 2, column=2, value=values[1])
+                        sheet.cell(row=row + 2, column=3, value=values[2])
+
+            if logs[0].msgList.count() != 0:
+                sheet = workbook.create_sheet(title=f'Unsorted CAN IDs')
+                sheet.cell(row=1, column=1, value="Time diff")
+                sheet.cell(row=1, column=2, value="Data")
+                sheet.cell(row=1, column=3, value="Timestamp")
+                for row in range(logs[0].msgList.count()):
+                    values = logs[0].msgList.item(row).text().split()
+                    sheet.cell(row=row + 2, column=1, value=values[0])
+                    sheet.cell(row=row + 2, column=2, value=values[1])
+                    sheet.cell(row=row + 2, column=3, value=values[2])
+
+            # Remove the default sheet created with the workbook if no data added to it
+            if 'Sheet' in workbook.sheetnames and workbook['Sheet'].max_row == 1:
+                del workbook['Sheet']
+
+            # Save the workbook
+            workbook.save(fileName)
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication([])

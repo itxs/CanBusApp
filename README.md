@@ -1,10 +1,10 @@
-# CAN Bus Logging Application
+# CAN Message Logger
 
 A Python application for logging CAN bus data, developed using PyQt. This application provides an intuitive interface for monitoring and logging CAN bus traffic, with features for automatic detection of new CAN IDs, timestamping, and exporting data.
 
 ## Features
 
-- **Automatic CAN ID Detection**: Has checkbox for autodetecting new CAN IDs dynamically and create dedicated loggers for each.
+- **Automatic CAN ID Detection**: Has a checkbox for autodetecting new CAN IDs dynamically and creates dedicated loggers for each.
 - **Timestamping**: Adds timestamps to each frame from the start of reception.
 - **Time Difference Calculation**: Displays the time difference between consecutive frames.
 - **Data Export**: Exports captured data to an XLSX file for further analysis.
